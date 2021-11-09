@@ -36,7 +36,7 @@ impl<'a> DungeonsLoot<'a> {
                 Loot::default(),
                 match reqwest::Url::parse(url) {
                     Ok(it) => it,
-                    Err(err) => panic!("Url 无法解析. Err: {}",err),
+                    Err(err) => panic!("Url 无法解析. Err: {}", err),
                 },
             ),
         }
@@ -57,7 +57,7 @@ impl<'a> DungeonsLoot<'a> {
                     format!("{:<15}", format!("掉落权重: {}", loot.0)),
                     format!(
                         "{:<20}",
-                        format!("掉落概率——{:.2}%", loot.0 / (weight_sum * 100.0) * 1000.0)
+                        format!("掉落概率——{:.2}%", (loot.0 / weight_sum) * 100.0)
                     ),
                     format!(
                         "{:<50}",
@@ -179,4 +179,3 @@ pub async fn run() {
         }
     }
 }
-
