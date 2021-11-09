@@ -1,0 +1,11 @@
+#+TITLE: Readme
+* 使用方法
+** 编译
+#+begin_src shell
+cargo build --release
+#+end_src
+
+** 运行
+#+begin_src shell
+cargo run --release
+#+end_src
