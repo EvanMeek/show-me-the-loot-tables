@@ -1,6 +1,7 @@
-use std::process::exit;
-
+use regex::Regex;
+use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
+use std::process::exit;
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum LootSpec<T: AsRef<str>> {
     /// Asset specifier
@@ -44,36 +45,118 @@ impl<'a> DungeonsLoot<'a> {
     async fn format(self) {
         println!("=====正在解析**{}**地牢中...======", self.dungeon_level);
         for loottable in self.clone().request_parse_loots().await.unwrap().iter() {
-            println!("{:=^80}", format!("{}", loottable.0));
+            println!("{:=^90}\n", format!("{}", loottable.0));
+            println!("{:<20}{:<30}{:<40}", "掉落权重", "掉率概率", "战利品");
             let mut weight_sum = 0.0;
 
             for l in loottable.1.loot.iter() {
                 weight_sum += l.0;
             }
+            // panic!("todo");
             for loot in loottable.1.loot.iter() {
                 // 单个物品权重/(所有物品权重的和*100) = 掉率
                 println!(
-                    "{}{}{}",
-                    format!("{:<15}", format!("掉落权重: {}", loot.0)),
+                    "{:<20}\t{:<30}\t{:<40}",
+                    format!("{}", format!("{}", loot.0)),
+                    format!("{}", format!("{:.2}%", (loot.0 / weight_sum) * 100.0)),
                     format!(
-                        "{:<20}",
-                        format!("掉落概率——{:.2}%", (loot.0 / weight_sum) * 100.0)
-                    ),
-                    format!(
-                        "{:<50}",
+                        "{}",
                         format!(
-                            "战利品: {}",
+                            "{}",
                             match loot.1.clone() {
-                                LootSpec::Item(item) => format!("路径: {}", item),
-                                LootSpec::ItemQuantity(item, min, max) =>
-                                    format!("数量: {}-{} 路径: {}", min, max, item),
-                                LootSpec::LootTable(lt) => format!("指向另一个路径: {}", lt),
+                                LootSpec::Item(item) => format!(
+                                    "{}",
+                                    self.clone()
+                                        .parse_loot_name(LootSpec::Item(item))
+                                        .await
+                                        .unwrap()
+                                ),
+                                LootSpec::ItemQuantity(item, min, max) => format!(
+                                    "{}-{} {}",
+                                    min,
+                                    max,
+                                    self.clone()
+                                        .parse_loot_name(LootSpec::ItemQuantity(item, min, max))
+                                        .await
+                                        .unwrap()
+                                ),
+                                LootSpec::LootTable(lt) => format!(
+                                    "{}",
+                                    self.clone()
+                                        .parse_loot_name(LootSpec::LootTable(lt))
+                                        .await
+                                        .unwrap()
+                                ),
                                 LootSpec::Nothing => "啥都没有".to_string(),
                             }
                         )
                     )
                 );
             }
+        }
+    }
+    async fn parse_loot_name(self, ls: LootSpec<String>) -> Result<String, reqwest::Error> {
+        let mut url: reqwest::Url;
+        let mut name = String::new();
+        let parse = |url: reqwest::Url| async {
+            let resp = reqwest::Client::new()
+                .get(url)
+                .header("User-Agent", "Rust")
+                .send()
+                .await
+                .unwrap();
+            // match resp.status() {
+            //     StatusCode::OK => (),
+            //     _ => panic!("请求失败"),
+            // }
+
+            let resp_json: serde_json::Value =
+                serde_json::de::from_str(&resp.text().await.unwrap()).unwrap();
+            let content_need_decode = resp_json["content"]
+                .to_string()
+                .replace("\\n", "")
+                .replace("\"", "");
+
+            let content = base64::decode(content_need_decode).unwrap();
+            let content = std::str::from_utf8(&content).expect("parse loot name: u8 to str error ");
+
+            let regex = Regex::new(r#"".*?""#).unwrap();
+            name = regex.captures(&content).unwrap()[0]
+                .to_string()
+                .replace("\"", "");
+            name
+        };
+        match ls {
+            LootSpec::Item(item) => {
+                // println!("path: {}", item.replace(".", "/"));
+                url = reqwest::Url::parse(
+                    format!(
+                        "{}{}.ron",
+                        "https://api.github.com/repos/EvanMeek/veloren-wecw-assets/contents/",
+                        item.replace(".", "/")
+                    )
+                    .as_str(),
+                )
+                .unwrap();
+                name = parse(url).await;
+                Ok(name)
+            }
+            LootSpec::ItemQuantity(item, min, max) => {
+                // println!("path: {}", item.replace(".", "/"));
+                url = reqwest::Url::parse(
+                    format!(
+                        "{}{}.ron",
+                        "https://api.github.com/repos/EvanMeek/veloren-wecw-assets/contents/",
+                        item.replace(".", "/")
+                    )
+                    .as_str(),
+                )
+                .unwrap();
+                name = parse(url).await;
+                Ok(name)
+            }
+            LootSpec::LootTable(_) => Ok(format!("这是个战利品集合..")),
+            LootSpec::Nothing => Ok("啥都没有".to_string()),
         }
     }
     //返回单个战利品
